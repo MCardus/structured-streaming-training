@@ -13,11 +13,14 @@ object KafkaToFs {
     writeStream(words)
   }
 
-  def readStream(topic: String)(implicit spark: SparkSession): Dataset[String] = {
+  def readStream(topic: String, port: Int = 9092, startingOffsets: String = "latest")(implicit
+      spark: SparkSession
+  ): Dataset[String] = {
     spark.readStream
       .format("kafka")
-      .option("kafka.bootstrap.servers", "localhost:9092")
+      .option("kafka.bootstrap.servers", f":$port")
       .option("subscribe", topic)
+      .option("startingOffsets", startingOffsets)
       .load()
       .select($"value".cast(StringType))
       .as[String]
