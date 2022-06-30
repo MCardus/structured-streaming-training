@@ -1,26 +1,19 @@
-import org.apache.kafka.clients.producer.{KafkaProducer, ProducerRecord}
+import TestUtils.{cleanTemporaryData, writeToKafka}
 import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.execution.streaming.MemoryStream
+import org.scalatest.BeforeAndAfterEach
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
 
-import java.time.LocalTime
-import java.util.{Properties, UUID}
+import java.util.UUID
 
-class KafkaToFsTest extends AnyFlatSpec with Matchers {
+class KafkaToFsTest extends AnyFlatSpec with Matchers with BeforeAndAfterEach {
 
   implicit val spark = SparkSession.builder.master("local").getOrCreate()
   import spark.implicits._
 
-  def writeToKafka(topic: String, message: String): Unit = {
-    val props = new Properties()
-    props.put("bootstrap.servers", ":9092")
-    props.put("key.serializer", "org.apache.kafka.common.serialization.StringSerializer")
-    props.put("value.serializer", "org.apache.kafka.common.serialization.StringSerializer")
-    val producer = new KafkaProducer[String, String](props)
-    val record   = new ProducerRecord[String, String](topic, LocalTime.now().toString, message)
-    producer.send(record)
-    producer.close()
-  }
+  override def afterEach(): Unit =
+    cleanTemporaryData()
 
   "it" should "split lines in words" in {
     val lines = List("Hello dear world", "Have a nice day").toDS()
@@ -50,6 +43,27 @@ class KafkaToFsTest extends AnyFlatSpec with Matchers {
     val actual = spark.sql(f"SELECT * FROM $inMemoryTable").as[String].collect()
 
     streamingDataSet.isStreaming shouldBe true
+    actual.size shouldBe totalMessages
+    actual.foreach(row => row shouldBe message)
+  }
+
+  "it" should "write a stream to fs" in {
+    implicit val sparkCtx = spark.sqlContext
+    val message           = "Do yo read me?"
+    val totalMessages     = 100
+    val outputPath        = "testOutput"
+
+    val sampleStream = MemoryStream[String]
+    sampleStream.addData((1 to totalMessages).map(_ => message))
+    sampleStream.toDS().isStreaming shouldBe true
+
+    KafkaToFs.writeStream(sampleStream.toDS(), timeout = Some(2500L), path = outputPath)
+
+    val actual = spark.read
+      .format("csv")
+      .load(f"$outputPath/*.csv")
+      .as[String]
+      .collect()
     actual.size shouldBe totalMessages
     actual.foreach(row => row shouldBe message)
   }

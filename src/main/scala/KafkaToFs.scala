@@ -29,11 +29,11 @@ object KafkaToFs {
   def transformStream(lines: Dataset[String]): Dataset[String] =
     lines.flatMap(_.split(" "))
 
-  def writeStream(words: Dataset[String]): Unit =
+  def writeStream(words: Dataset[String], path: String = "", timeout: Option[Long] = None): Unit =
     words.writeStream
       .format("csv")
-      .option("path", "./words.csv")
+      .option("path", path)
       .option("checkpointLocation", "./checkpoint")
       .start()
-      .awaitTermination()
+      .awaitTermination(timeout.getOrElse(Long.MaxValue))
 }
